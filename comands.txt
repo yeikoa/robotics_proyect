@@ -1,0 +1,4 @@
+pip install openai-whisper sounddevice scipy google-generativeai
+pip install keyboard
+pip install opencv-python
+pip install ultralytics
