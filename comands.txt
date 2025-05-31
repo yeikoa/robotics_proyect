@@ -2,3 +2,6 @@ pip install openai-whisper sounddevice scipy google-generativeai
 pip install keyboard
 pip install opencv-python
 pip install ultralytics
+pip install opencv-contrib-python
+pip install Flask
+pip install PyQt5
