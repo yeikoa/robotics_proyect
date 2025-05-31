@@ -3,30 +3,33 @@ import numpy as np
 import requests
 from ultralytics import YOLO
 from queue import PriorityQueue
+import serial
+import time
 
-# --------------- CONFIGURACIÓN --------------------
-IP_CAM_URL = "http://192.168.18.5:8080/video"
+# ------------ CONFIGURACIÓN --------------------
+IP_CAM_URL = "http://10.251.48.176:8080/video"
 GRID_SIZE = 20
 SERVER_URL = "http://localhost:5000/objetivos"
+SERIAL_PORT = "COM4"  
+BAUD_RATE = 9600
 TRADUCCION = {
     "caja azul": "blue box",
     "persona": "person",
     "silla": "chair",
     "botella": "bottle",
     "carro": "car",
-    
 }
-
 
 model = YOLO("yolov8n.pt")
 cap = cv2.VideoCapture(IP_CAM_URL)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
+ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
+time.sleep(2)  # Esperar conexión serial
 
 def traducir_objetivos(lista):
     return [TRADUCCION.get(o.lower(), o.lower()) for o in lista]
 
-# Obtener lista de objetivos desde el servidor
 def obtener_objetivos():
     try:
         response = requests.get(SERVER_URL, timeout=2)
@@ -77,14 +80,13 @@ def a_star(start, goal, grid):
                     open_set.put((f_score[neighbor], neighbor))
     return []
 
-# Cargar lista de objetivos
+#  Cargar objetivos
 objetivos = obtener_objetivos()
 print("🎯 Objetivos recibidos:", objetivos)
-print("🚀 Iniciando...")
 
 ruta_completa = []
 ruta_imagen = None
-robot_pos = None  # Detectar posición inicial del mouse
+robot_pos = None
 
 while True:
     ret, frame = cap.read()
@@ -95,7 +97,6 @@ while True:
     grid = np.zeros((GRID_SIZE, GRID_SIZE), dtype=int)
     frame_drawn = frame.copy()
 
-    # Rejilla
     h, w = frame.shape[:2]
     cell_w = w // GRID_SIZE
     cell_h = h // GRID_SIZE
@@ -104,7 +105,6 @@ while True:
         cv2.line(frame_drawn, (0, i * cell_h), (w, i * cell_h), (50, 50, 50), 1)
         cv2.line(frame_drawn, (i * cell_w, 0), (i * cell_w, h), (50, 50, 50), 1)
 
-    # Detectar mouse como posición inicial del robot
     for r in results:
         for box in r.boxes:
             cls = int(box.cls[0])
@@ -124,11 +124,9 @@ while True:
             break
         continue
 
-    # Dibujar posición del robot
-    rx, ry = robot_pos[1] * cell_w, robot_pos[0] * cell_h
-    cv2.rectangle(frame_drawn, (rx, ry), (rx+cell_w, ry+cell_h), (255, 255, 0), 2)
+    cv2.rectangle(frame_drawn, (robot_pos[1]*cell_w, robot_pos[0]*cell_h),
+                  (robot_pos[1]*cell_w + cell_w, robot_pos[0]*cell_h + cell_h), (255, 255, 0), 2)
 
-    # Buscar posiciones objetivo
     objetivos_pos = {}
     for r in results:
         for box in r.boxes:
@@ -143,10 +141,9 @@ while True:
                     if objetivo not in objetivos_pos:
                         objetivos_pos[objetivo] = (gx, gy)
                         cv2.rectangle(frame_drawn, (x1, y1), (x2, y2), (0,255,0), 2)
-                        cv2.putText(frame_drawn, f"{label}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
+                        cv2.putText(frame_drawn, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,255,0), 2)
                     break
 
-    # Dibujar ruta hacia cada objetivo y de regreso
     actual_pos = robot_pos
     ruta_total = []
 
@@ -157,11 +154,9 @@ while True:
             ruta_total += path
             actual_pos = destino
 
-    # Regresar a la posición inicial
     if actual_pos != robot_pos:
         ruta_total += a_star(actual_pos, robot_pos, grid)
 
-    # Dibujar y guardar ruta
     for gx, gy in ruta_total:
         x = gy * cell_w + cell_w // 2
         y = gx * cell_h + cell_h // 2
@@ -171,18 +166,24 @@ while True:
         ruta_completa = ruta_total.copy()
         ruta_imagen = frame_drawn.copy()
 
-    cv2.imshow("Mapa y Ruta", frame_drawn)
-
-    key = cv2.waitKey(1)
-    if key == 27:
-        break
-    elif key == ord("g"):
-        if ruta_imagen is not None:
-            cv2.imwrite("ruta_dibujada.png", ruta_imagen)
+        # Guardar archivos
         with open("ruta_coordenadas.txt", "w") as f:
             for punto in ruta_completa:
                 f.write(f"{punto}\n")
+        cv2.imwrite("ruta_dibujada.png", ruta_imagen)
         print("📦 Ruta guardada como imagen y coordenadas.")
+
+        # Enviar por serial
+        for punto in ruta_completa:
+            ser.write(f"{punto[0]},{punto[1]}\n".encode())
+            time.sleep(0.1)  # Espera para que el Arduino lea
+
+        ser.write(b"END\n")
+        print("📤 Ruta enviada al robot.")
+
+    cv2.imshow("Mapa y Ruta", frame_drawn)
+    if cv2.waitKey(1) == 27:
+        break
 
 cap.release()
 cv2.destroyAllWindows()
