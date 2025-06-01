@@ -18,6 +18,7 @@ TRADUCCION = {
     "silla": "chair",
     "botella": "bottle",
     "carro": "car",
+    "maletin": "suitcase",
 }
 
 model = YOLO("yolov8n.pt")

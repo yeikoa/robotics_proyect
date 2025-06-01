@@ -1,12 +1,13 @@
 import cv2
 from ultralytics import YOLO
 
-IP_CAM_URL = "http://10.251.48.176:8080/video"
+IP_CAM_URL = "http://192.168.18.5:8080/video"
 
-# Carga el modelo YOLOv8 (nano para velocidad, puedes usar yolov8s.pt para mejor precisión)
-model = YOLO("yolov8n.pt")
+general_model = YOLO("yolov8m.pt")
 
-# Conecta con la cámara IP del celular
+custom_model = YOLO("D:/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")  
+
+
 cap = cv2.VideoCapture(IP_CAM_URL)
 
 if not cap.isOpened():
@@ -21,16 +22,17 @@ while True:
         print("⚠️ No se pudo leer el frame. Reintentando...")
         continue
 
-    # Realiza detección con YOLOv8
-    results = model(frame)
+   
+    results_general = general_model(frame)
 
-    # Dibuja resultados sobre el frame
-    annotated_frame = results[0].plot()
+    results_custom = custom_model(frame)
 
-    # Muestra la imagen con los objetos detectados
-    cv2.imshow("🧠 Detección YOLOv8 desde celular", annotated_frame)
+    frame_general = results_general[0].plot()
+    frame_final = results_custom[0].plot(frame_general.copy())  
+ 
+    cv2.imshow("🧠 YOLOv8 - General + Robot", frame_final)
 
-    if cv2.waitKey(1) == 27:  # Presiona ESC para salir
+    if cv2.waitKey(1) == 27:  #  ESC para salir
         break
 
 cap.release()
