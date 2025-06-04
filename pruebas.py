@@ -5,7 +5,7 @@ IP_CAM_URL = "http://192.168.18.5:8080/video"
 
 general_model = YOLO("yolov8m.pt")
 
-custom_model = YOLO("D:/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")  
+custom_model = YOLO("C:/Trabajos_U/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")  
 
 
 cap = cv2.VideoCapture(IP_CAM_URL)
@@ -28,7 +28,7 @@ while True:
     results_custom = custom_model(frame)
 
     frame_general = results_general[0].plot()
-    frame_final = results_custom[0].plot(frame_general.copy())  
+    frame_final = results_custom[0].plot()  
  
     cv2.imshow("🧠 YOLOv8 - General + Robot", frame_final)
 

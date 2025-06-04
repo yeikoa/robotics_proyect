@@ -1,11 +1,10 @@
 from ultralytics import YOLO
 
-# Cargar modelo base
-model = YOLO("yolov8n.pt")  # Puedes usar yolov8s.pt, yolov8m.pt según tu hardware
 
-# Entrenar
+model = YOLO("yolov8n.pt")  
+
 model.train(
-    data="D:/yolo_train/proyecto.v1i.yolov5pytorch/data.yaml",  # Cambia esto por la ruta real
+    data="C:/yolo_train/proyecto.v1i.yolov5pytorch/data.yaml", 
     epochs=50,
     imgsz=640,
     batch=8,
