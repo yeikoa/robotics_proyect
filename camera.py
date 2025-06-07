@@ -11,8 +11,8 @@ from utils.translate_words import Translate
 IP_CAM_URL   = "http://192.168.89.231:8080/video"
 GRID_SIZE    = 20
 SERVER_URL   = "http://localhost:5000/objetivos"
-#SERIAL_PORT  = "COM3"
-#BAUD_RATE    = 9600
+SERIAL_PORT  = "COM3"
+BAUD_RATE    = 9600
 
 translator = Translate()
 
@@ -22,9 +22,8 @@ custom_model    = YOLO("D:/robotics_proyect/entrenamiento_robot/robot_model/weig
 cap = cv2.VideoCapture(IP_CAM_URL)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-#ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
-#time.sleep(2)
-ARDUINO_URL = "http://192.168.89.79/recibir_ruta"  
+ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
+time.sleep(2)  
 
 def translate_objetives(lista):
 
@@ -207,16 +206,12 @@ while True:
         cv2.imwrite("ruta_dibujada.png", ruta_imagen)
         print("📦 Ruta guardada como imagen y coordenadas.")
 
-        try:
-            # Construir datos como lista de diccionarios o pares
-            coordenadas_json = {"ruta": ruta_completa}
-            response = requests.post(ARDUINO_URL, json=coordenadas_json, timeout=3)
-            if response.status_code == 200:
-                print("📤 Ruta enviada exitosamente al robot por WiFi.")
-            else:
-                print(f"⚠️ Error al enviar ruta: {response.status_code}")
-        except requests.exceptions.RequestException as e:
-            print(f"❌ No se pudo enviar la ruta al robot: {e}")
+        for punto in ruta_completa:
+            ser.write(f"{punto[0]},{punto[1]}\n".encode())
+            time.sleep(0.1)
+
+        ser.write(b"END\n")
+        print("📤 Ruta enviada al robot.")
 
     cv2.imshow("Mapa y Ruta", frame_drawn)
     if cv2.waitKey(1) == 27:  # ESC para salir
