@@ -1,11 +1,11 @@
 import cv2
 from ultralytics import YOLO
 
-IP_CAM_URL = "http://192.168.18.5:8080/video"
+IP_CAM_URL = "http://10.251.48.181:8080/video"
 
 general_model = YOLO("yolov8m.pt")
 
-custom_model = YOLO("C:/Trabajos_U/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")  
+custom_model = YOLO("D:/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")  
 
 
 cap = cv2.VideoCapture(IP_CAM_URL)
