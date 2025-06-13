@@ -85,17 +85,55 @@ def a_star(start, goal, grid):
                     open_set.put((f_score[neighbor], neighbor))
     return []
 
-def get_direction(p1, p2):
-    dy = p2[0] - p1[0]
-    dx = p2[1] - p1[1]
-    if dy == -1: return "down"
-    if dy == 1: return "up"
-    if dx == -1: return "right"
-    if dx == 1: return "left"
-    return "stay"
-
 def eliminar_repetidos(ruta):
     return [p for i, p in enumerate(ruta) if i == 0 or p != ruta[i-1]]
+
+def convertir_a_instrucciones(path):
+    if len(path) < 2:
+        return []
+
+    instrucciones = []
+    direccion_actual = "down"  # dirección inicial
+
+    direcciones = {
+        (0, 1): "right",
+        (0, -1): "left",
+        (1, 0): "down",
+        (-1, 0): "up"
+    }
+
+    orientaciones = ["up", "right", "down", "left"]
+
+    def calcular_giro(d_actual, d_nueva):
+        idx_a = orientaciones.index(d_actual)
+        idx_b = orientaciones.index(d_nueva)
+        delta = (idx_b - idx_a) % 4
+        if delta == 1:
+            return "right"
+        elif delta == 3:
+            return "left"
+        elif delta == 2:
+            return ["right", "right"]
+        return None
+
+    for i in range(1, len(path)):
+        dx = path[i][0] - path[i-1][0]
+        dy = path[i][1] - path[i-1][1]
+        nueva_direccion = direcciones.get((dx, dy))
+        if nueva_direccion is None:
+            continue
+
+        if nueva_direccion != direccion_actual:
+            giro = calcular_giro(direccion_actual, nueva_direccion)
+            if isinstance(giro, list):
+                instrucciones.extend(giro)
+            elif giro:
+                instrucciones.append(giro)
+            direccion_actual = nueva_direccion
+
+        instrucciones.append("down")  # avanzar después de orientar
+
+    return instrucciones
 
 # ------------ LOOP PRINCIPAL --------------------
 
@@ -124,10 +162,9 @@ while True:
     for box in results_robot[0].boxes:
         x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
         offset = 5
-        cx = x2 + offset  # fuera del bounding box del robot
+        cx = x2 + offset
         cy = (y1 + y2) // 2
         robot_pos = get_grid_pos(frame.shape, cx, cy)
-
 
     if robot_pos is None:
         cv2.imshow("Mapa y Ruta", frame_drawn)
@@ -163,7 +200,7 @@ while True:
                 if objetivo in label:
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                     offset = 5
-                    cx = x1 - offset  # fuera del bounding box del objetivo
+                    cx = x1 - offset
                     cy = (y1 + y2) // 2
                     gx, gy = get_grid_pos(frame.shape, cx, cy)
 
@@ -190,7 +227,6 @@ while True:
         y = gx * cell_h + cell_h // 2
         cv2.circle(frame_drawn, (x, y), 5, (0, 0, 255), -1)
 
-    # Enviar direcciones en vez de coordenadas
     if ruta_total:
         with open("ruta_coordenadas.txt", "w") as f:
             for punto in ruta_total:
@@ -198,11 +234,11 @@ while True:
         cv2.imwrite("ruta_dibujada.png", frame_drawn)
         print("📦 Ruta guardada como imagen y coordenadas.")
 
+        instrucciones = convertir_a_instrucciones(ruta_total)
         print("➡️ Instrucciones enviadas:")
-        for i in range(1, len(ruta_total)):
-            dir = get_direction(ruta_total[i-1], ruta_total[i])
-            print(f"  {dir}")
-            ser.write(f"{dir}\n".encode())
+        for inst in instrucciones:
+            print(f"  {inst}")
+            ser.write(f"{inst}\n".encode())
             time.sleep(0.1)
 
         ser.write(b"END\n")
