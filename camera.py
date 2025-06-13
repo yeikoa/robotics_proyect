@@ -7,11 +7,12 @@ import serial
 import time
 
 from utils.translate_words import Translate
+
 # ------------ CONFIGURACIÓN --------------------
-IP_CAM_URL   = "http://192.168.89.231:8080/video"
+IP_CAM_URL   = "http://10.251.48.124:8080/video"
 GRID_SIZE    = 20
 SERVER_URL   = "http://localhost:5000/objetivos"
-SERIAL_PORT  = "COM3"
+SERIAL_PORT  = "COM4"
 BAUD_RATE    = 9600
 
 translator = Translate()
@@ -23,10 +24,11 @@ cap = cv2.VideoCapture(IP_CAM_URL)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
-time.sleep(2)  
+time.sleep(2)
+
+# ------------ FUNCIONES --------------------
 
 def translate_objetives(lista):
-
     return translator.masive_translate(lista, language_og="auto", language_des="en")
 
 def obtener_objetivos():
@@ -83,20 +85,30 @@ def a_star(start, goal, grid):
                     open_set.put((f_score[neighbor], neighbor))
     return []
 
+def get_direction(p1, p2):
+    dy = p2[0] - p1[0]
+    dx = p2[1] - p1[1]
+    if dy == -1: return "down"
+    if dy == 1: return "up"
+    if dx == -1: return "right"
+    if dx == 1: return "left"
+    return "stay"
+
+def eliminar_repetidos(ruta):
+    return [p for i, p in enumerate(ruta) if i == 0 or p != ruta[i-1]]
+
+# ------------ LOOP PRINCIPAL --------------------
+
 objetivos = obtener_objetivos()
 print("🎯 Objetivos recibidos (traducidos al inglés):", objetivos)
 last_fetch_time = time.time()
-FETCH_INTERVAL = 1  
-
-
-ruta_completa = []
-ruta_imagen = None
-robot_pos = None
+FETCH_INTERVAL = 1
 
 while True:
     ret, frame = cap.read()
     if not ret:
         continue
+
     current_time = time.time()
     if current_time - last_fetch_time > FETCH_INTERVAL:
         nuevos_objetivos = obtener_objetivos()
@@ -104,27 +116,18 @@ while True:
             objetivos = nuevos_objetivos
             print("🔄 Objetivos actualizados:", objetivos)
         last_fetch_time = current_time
-    # detectar posición del robot usando el modelo custom
+
     results_robot = custom_model(frame)
     robot_pos = None
     frame_drawn = frame.copy()
 
     for box in results_robot[0].boxes:
-        
         x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-        cx = (x1 + x2) // 2
+        offset = 5
+        cx = x2 + offset  # fuera del bounding box del robot
         cy = (y1 + y2) // 2
         robot_pos = get_grid_pos(frame.shape, cx, cy)
-        # Dibujar rectángulo amarillo alrededor del robot
-        cv2.rectangle(frame_drawn, (x1, y1), (x2, y2), (255, 255, 0), 2)
-        cv2.putText(frame_drawn,
-                    "robot",
-                    (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.6,
-                    (255, 255, 0),
-                    2)
-        break  
+
 
     if robot_pos is None:
         cv2.imshow("Mapa y Ruta", frame_drawn)
@@ -154,26 +157,20 @@ while True:
     objetivos_pos = {}
     for r in results:
         for box in r.boxes:
-            cls   = int(box.cls[0])
+            cls = int(box.cls[0])
             label = model_objetivos.names[cls].lower()
             for objetivo in objetivos:
                 if objetivo in label:
                     x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-                    cx = (x1 + x2) // 2
+                    offset = 5
+                    cx = x1 - offset  # fuera del bounding box del objetivo
                     cy = (y1 + y2) // 2
                     gx, gy = get_grid_pos(frame.shape, cx, cy)
+
                     if objetivo not in objetivos_pos:
                         objetivos_pos[objetivo] = (gx, gy)
                         cv2.rectangle(frame_drawn, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                        cv2.putText(
-                            frame_drawn,
-                            label,
-                            (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6,
-                            (0, 255, 0),
-                            2
-                        )
+                        cv2.putText(frame_drawn, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                     break
 
     actual_pos = robot_pos
@@ -186,35 +183,33 @@ while True:
             ruta_total += path
             actual_pos = destino
 
-    if actual_pos != robot_pos:
-        ruta_total += a_star(actual_pos, robot_pos, grid)
+    ruta_total = eliminar_repetidos(ruta_total)
 
-    # dibujar toda la ruta en rojo
     for gx, gy in ruta_total:
         x = gy * cell_w + cell_w // 2
         y = gx * cell_h + cell_h // 2
         cv2.circle(frame_drawn, (x, y), 5, (0, 0, 255), -1)
 
-    # Si existe ruta entonces guardarla y enviarla por serial
+    # Enviar direcciones en vez de coordenadas
     if ruta_total:
-        ruta_completa = ruta_total.copy()
-        ruta_imagen = frame_drawn.copy()
-
         with open("ruta_coordenadas.txt", "w") as f:
-            for punto in ruta_completa:
+            for punto in ruta_total:
                 f.write(f"{punto}\n")
-        cv2.imwrite("ruta_dibujada.png", ruta_imagen)
+        cv2.imwrite("ruta_dibujada.png", frame_drawn)
         print("📦 Ruta guardada como imagen y coordenadas.")
 
-        for punto in ruta_completa:
-            ser.write(f"{punto[0]},{punto[1]}\n".encode())
+        print("➡️ Instrucciones enviadas:")
+        for i in range(1, len(ruta_total)):
+            dir = get_direction(ruta_total[i-1], ruta_total[i])
+            print(f"  {dir}")
+            ser.write(f"{dir}\n".encode())
             time.sleep(0.1)
 
         ser.write(b"END\n")
-        print("📤 Ruta enviada al robot.")
+        print("📤 Fin de ruta enviada al robot.")
 
     cv2.imshow("Mapa y Ruta", frame_drawn)
-    if cv2.waitKey(1) == 27:  # ESC para salir
+    if cv2.waitKey(1) == 27:
         break
 
 cap.release()
