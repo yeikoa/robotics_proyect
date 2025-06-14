@@ -9,16 +9,16 @@ import time
 from utils.translate_words import Translate
 
 # ------------ CONFIGURACIÓN --------------------
-IP_CAM_URL   = "http://10.251.48.124:8080/video"
+IP_CAM_URL   = "http://172.17.47.18:8080/video"
 GRID_SIZE    = 20
 SERVER_URL   = "http://localhost:5000/objetivos"
-SERIAL_PORT  = "COM4"
+SERIAL_PORT  = "COM6"  
 BAUD_RATE    = 9600
 
 translator = Translate()
 
 model_objetivos = YOLO("yolov8n.pt")
-custom_model    = YOLO("D:/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")
+custom_model    = YOLO("C:/Users/User/OneDrive - Universidad Nacional de Costa Rica/Escritorio/Programacion/Python/robotics_proyect/entrenamiento_robot/robot_model/weights/best.pt")
 
 cap = cv2.VideoCapture(IP_CAM_URL)
 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -89,50 +89,133 @@ def eliminar_repetidos(ruta):
     return [p for i, p in enumerate(ruta) if i == 0 or p != ruta[i-1]]
 
 def convertir_a_instrucciones(path):
+    """
+    Convierte una ruta de coordenadas grid a instrucciones para el robot.
+    
+    SISTEMA DE ORIENTACIÓN DEL ROBOT:
+    - Robot siempre orientado físicamente hacia "down"
+    - down: se mueve en eje -x a +x (hacia la derecha en el plano)
+    - left (1 giro): se orienta para ir de -y a +y (hacia arriba en el plano)
+    - right (1 giro): se orienta para ir de +y a -y (hacia abajo en el plano)  
+    - up (2 giros): se orienta para ir de +x a -x (hacia la izquierda en el plano)
+    """
     if len(path) < 2:
         return []
 
     instrucciones = []
-    direccion_actual = "down"  # dirección inicial
 
-    direcciones = {
-        (0, 1): "right",
-        (0, -1): "left",
-        (1, 0): "down",
-        (-1, 0): "up"
+    # Mapeo de direcciones en el grid
+    direcciones_grid = {
+        (0, 1): "grid_right",   # Moverse hacia la derecha en el grid (+y)
+        (0, -1): "grid_left",   # Moverse hacia la izquierda en el grid (-y)
+        (1, 0): "grid_down",    # Moverse hacia abajo en el grid (+x)
+        (-1, 0): "grid_up"      # Moverse hacia arriba en el grid (-x)
     }
 
-    orientaciones = ["up", "right", "down", "left"]
+    # Estado actual de orientación del robot
+    # down = eje -x a +x, left = eje -y a +y, right = eje +y a -y, up = eje +x a -x
+    orientacion_actual = "down"  # Robot inicia orientado hacia down
+    
+    def obtener_giros_necesarios(orientacion_actual, direccion_grid_deseada):
+        """
+        Calcula los giros necesarios para que el robot se oriente hacia la dirección deseada
+        
+        Mapeo de orientaciones del robot a direcciones del grid:
+        - "down" (0 giros desde inicial) -> puede moverse "grid_down" (hacia +x)
+        - "left" (1 giro desde inicial) -> puede moverse "grid_up" (hacia -x) 
+        - "right" (1 giro desde inicial) -> puede moverse "grid_down" (hacia +x)
+        - "up" (2 giros desde inicial) -> puede moverse "grid_left" (hacia -y)
+        
+        Wait, me confundí. Déjame corregir según tu explicación:
+        - "down": robot se mueve de -x a +x = "grid_right" en coordenadas
+        - "left": robot se mueve de -y a +y = "grid_up" en coordenadas  
+        - "right": robot se mueve de +y a -y = "grid_down" en coordenadas
+        - "up": robot se mueve de +x a -x = "grid_left" en coordenadas
+        """
+        
+        # Mapeo: orientación del robot -> dirección que puede tomar en el grid
+        orientacion_a_direccion = {
+            "down": "grid_right",   # -x a +x = moverse hacia la derecha del grid
+            "left": "grid_up",      # -y a +y = moverse hacia arriba del grid
+            "right": "grid_down",   # +y a -y = moverse hacia abajo del grid  
+            "up": "grid_left"       # +x a -x = moverse hacia la izquierda del grid
+        }
+        
+        # Si ya está en la orientación correcta, no necesita girar
+        if orientacion_a_direccion[orientacion_actual] == direccion_grid_deseada:
+            return [], orientacion_actual
+        
+        # Calcular giros necesarios
+        if direccion_grid_deseada == "grid_right":  # Necesita orientación "down"
+            if orientacion_actual == "down":
+                return [], "down"
+            elif orientacion_actual == "left":
+                return ["right"], "down"  # 1 giro derecha
+            elif orientacion_actual == "right":
+                return ["left"], "down"   # 1 giro izquierda
+            elif orientacion_actual == "up":
+                return ["right", "right"], "down"  # 2 giros = media vuelta
+                
+        elif direccion_grid_deseada == "grid_up":   # Necesita orientación "left"
+            if orientacion_actual == "down":
+                return ["left"], "left"   # 1 giro izquierda
+            elif orientacion_actual == "left":
+                return [], "left"
+            elif orientacion_actual == "right":
+                return ["right", "right"], "left"  # 2 giros = media vuelta
+            elif orientacion_actual == "up":
+                return ["right"], "left"  # 1 giro derecha
+                
+        elif direccion_grid_deseada == "grid_down": # Necesita orientación "right"
+            if orientacion_actual == "down":
+                return ["right"], "right" # 1 giro derecha
+            elif orientacion_actual == "left":
+                return ["right", "right"], "right"  # 2 giros = media vuelta
+            elif orientacion_actual == "right":
+                return [], "right"
+            elif orientacion_actual == "up":
+                return ["left"], "right"  # 1 giro izquierda
+                
+        elif direccion_grid_deseada == "grid_left": # Necesita orientación "up"
+            if orientacion_actual == "down":
+                return ["right", "right"], "up"  # 2 giros = media vuelta
+            elif orientacion_actual == "left":
+                return ["right"], "up"    # 1 giro derecha
+            elif orientacion_actual == "right":
+                return ["left"], "up"     # 1 giro izquierda
+            elif orientacion_actual == "up":
+                return [], "up"
+        
+        return [], orientacion_actual  # Fallback
 
-    def calcular_giro(d_actual, d_nueva):
-        idx_a = orientaciones.index(d_actual)
-        idx_b = orientaciones.index(d_nueva)
-        delta = (idx_b - idx_a) % 4
-        if delta == 1:
-            return "right"
-        elif delta == 3:
-            return "left"
-        elif delta == 2:
-            return ["right", "right"]
-        return None
-
+    # ✅ Procesar cada movimiento en la ruta
     for i in range(1, len(path)):
-        dx = path[i][0] - path[i-1][0]
-        dy = path[i][1] - path[i-1][1]
-        nueva_direccion = direcciones.get((dx, dy))
-        if nueva_direccion is None:
+        dx = path[i][0] - path[i-1][0]  # Cambio en x (filas)
+        dy = path[i][1] - path[i-1][1]  # Cambio en y (columnas)
+        direccion_grid = direcciones_grid.get((dx, dy))
+        
+        if direccion_grid is None:
             continue
-
-        if nueva_direccion != direccion_actual:
-            giro = calcular_giro(direccion_actual, nueva_direccion)
-            if isinstance(giro, list):
-                instrucciones.extend(giro)
-            elif giro:
-                instrucciones.append(giro)
-            direccion_actual = nueva_direccion
-
-        instrucciones.append("down")  # avanzar después de orientar
-
+        
+        print(f"🎯 Movimiento {i}: {path[i-1]} -> {path[i]} = {direccion_grid}")
+        print(f"   Orientación actual del robot: {orientacion_actual}")
+        
+        # Calcular giros necesarios y nueva orientación
+        giros, nueva_orientacion = obtener_giros_necesarios(orientacion_actual, direccion_grid)
+        
+        # Agregar giros a las instrucciones
+        if giros:
+            instrucciones.extend(giros)
+            print(f"   🔄 Giros necesarios: {giros}")
+        
+        # Actualizar orientación
+        orientacion_actual = nueva_orientacion
+        print(f"   Nueva orientación: {orientacion_actual}")
+        
+        # Siempre avanzar con "down" (comando físico del robot)
+        instrucciones.append("down")
+        print(f"   ➡️ Avanzar con 'down'")
+    
     return instrucciones
 
 # ------------ LOOP PRINCIPAL --------------------
@@ -221,6 +304,7 @@ while True:
             actual_pos = destino
 
     ruta_total = eliminar_repetidos(ruta_total)
+    #ruta_total.reverse()
 
     for gx, gy in ruta_total:
         x = gy * cell_w + cell_w // 2
