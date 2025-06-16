@@ -1,7 +1,7 @@
 task: detect
 mode: train
 model: yolov8n.pt
-data: C:/yolo_train/proyecto.v1i.yolov5pytorch/data.yaml
+data: C:/yolo_train/mejorado/data.yaml
 epochs: 50
 time: null
 patience: 100
