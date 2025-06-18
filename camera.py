@@ -9,7 +9,7 @@ import time
 from utils.translate_words import Translate
 
 # ------------ CONFIGURACIÓN --------------------
-IP_CAM_URL   = "http://172.17.47.18:8080/video"
+IP_CAM_URL   = "http://172.17.44.237:8080/video"
 GRID_SIZE    = 20
 SERVER_URL   = "http://localhost:5000/objetivos"
 SERIAL_PORT  = "COM6"  
@@ -25,6 +25,9 @@ cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
 time.sleep(2)
+
+# ------------ VARIABLES DE CONTROL --------------------
+comandos_enviados = False  # Flag para controlar si ya se enviaron comandos
 
 # ------------ FUNCIONES --------------------
 
@@ -119,18 +122,6 @@ def convertir_a_instrucciones(path):
     def obtener_giros_necesarios(orientacion_actual, direccion_grid_deseada):
         """
         Calcula los giros necesarios para que el robot se oriente hacia la dirección deseada
-        
-        Mapeo de orientaciones del robot a direcciones del grid:
-        - "down" (0 giros desde inicial) -> puede moverse "grid_down" (hacia +x)
-        - "left" (1 giro desde inicial) -> puede moverse "grid_up" (hacia -x) 
-        - "right" (1 giro desde inicial) -> puede moverse "grid_down" (hacia +x)
-        - "up" (2 giros desde inicial) -> puede moverse "grid_left" (hacia -y)
-        
-        Wait, me confundí. Déjame corregir según tu explicación:
-        - "down": robot se mueve de -x a +x = "grid_right" en coordenadas
-        - "left": robot se mueve de -y a +y = "grid_up" en coordenadas  
-        - "right": robot se mueve de +y a -y = "grid_down" en coordenadas
-        - "up": robot se mueve de +x a -x = "grid_left" en coordenadas
         """
         
         # Mapeo: orientación del robot -> dirección que puede tomar en el grid
@@ -218,6 +209,41 @@ def convertir_a_instrucciones(path):
     
     return instrucciones
 
+def enviar_comandos_una_vez(ruta_actual):
+    """
+    Envía comandos al robot solo una vez cuando se define la ruta
+    """
+    global comandos_enviados
+    
+    if not comandos_enviados and ruta_actual:  # Solo si no se han enviado y hay ruta
+        print("\n🚀 ENVIANDO COMANDOS AL ROBOT...")
+        
+        # Guardar archivos de ruta
+        with open("ruta_coordenadas.txt", "w") as f:
+            for punto in ruta_actual:
+                f.write(f"{punto}\n")
+        
+        # Convertir ruta a instrucciones
+        instrucciones = convertir_a_instrucciones(ruta_actual)
+        
+        if instrucciones:  # Solo enviar si hay instrucciones
+            print("➡️ Instrucciones enviadas:")
+            for inst in instrucciones:
+                print(f"  {inst}")
+                ser.write(f"{inst}\n".encode())
+                time.sleep(0.1)
+            
+            ser.write(b"END\n")
+            print("📤 Fin de ruta enviada al robot.")
+            
+            # Marcar como enviados
+            comandos_enviados = True
+            return True  # Indica que se enviaron comandos
+        else:
+            print("⚠️ No se generaron instrucciones válidas")
+    
+    return False  # No se enviaron comandos
+
 # ------------ LOOP PRINCIPAL --------------------
 
 objetivos = obtener_objetivos()
@@ -304,31 +330,30 @@ while True:
             actual_pos = destino
 
     ruta_total = eliminar_repetidos(ruta_total)
-    #ruta_total.reverse()
 
+    # Dibujar la ruta en el frame
     for gx, gy in ruta_total:
         x = gy * cell_w + cell_w // 2
         y = gx * cell_h + cell_h // 2
         cv2.circle(frame_drawn, (x, y), 5, (0, 0, 255), -1)
 
+    # 🔥 Enviar comandos solo UNA vez cuando se define la ruta
     if ruta_total:
-        with open("ruta_coordenadas.txt", "w") as f:
-            for punto in ruta_total:
-                f.write(f"{punto}\n")
-        cv2.imwrite("ruta_dibujada.png", frame_drawn)
-        print("📦 Ruta guardada como imagen y coordenadas.")
+        comandos_enviados_ahora = enviar_comandos_una_vez(ruta_total)
+        
+        if comandos_enviados_ahora:
+            # Guardar imagen solo cuando se envían comandos
+            cv2.imwrite("ruta_dibujada.png", frame_drawn)
+            print("📦 Ruta guardada como imagen.")
 
-        instrucciones = convertir_a_instrucciones(ruta_total)
-        print("➡️ Instrucciones enviadas:")
-        for inst in instrucciones:
-            print(f"  {inst}")
-            ser.write(f"{inst}\n".encode())
-            time.sleep(0.1)
-
-        ser.write(b"END\n")
-        print("📤 Fin de ruta enviada al robot.")
+    # Mostrar estado en la imagen
+    status_text = "COMANDOS ENVIADOS" if comandos_enviados else "CALCULANDO RUTA..."
+    cv2.putText(frame_drawn, status_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, 
+                (0, 255, 0) if comandos_enviados else (0, 255, 255), 2)
 
     cv2.imshow("Mapa y Ruta", frame_drawn)
+    
+    # ESC para salir
     if cv2.waitKey(1) == 27:
         break
 
